@@ -127,6 +127,9 @@ const CoinCollector = () => {
   }
 
   function updateEnemies() {
+    if (gamePaused) {
+      return;
+    }
     enemies.current.forEach((enemy, index) => {
       let closestCoin = null;
       let closestDistance = Infinity;
@@ -260,6 +263,10 @@ const CoinCollector = () => {
 
     // Enemy spawning logic
     function spawnEnemies() {
+      if (gamePaused) {
+        return;
+      }
+      
       enemies.current = Array.from({ length: 3 }, () => ({
         x: Math.random() * (canvasRef.current.width - enemySize),
         y: Math.random() * (canvasRef.current.height - enemySize),
