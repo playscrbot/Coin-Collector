@@ -1,0 +1,63 @@
+/* App.css */
+
+.start-screen {
+  padding: 20px;
+  text-align: center;
+  margin-top: 40%;
+  font-family: 'Poppins', sans-serif;
+  position: relative;
+  overflow: hidden;
+}
+
+.start-screen h1 {
+  color: #333;
+  margin-bottom: 10px;
+}
+
+button {
+  background-color: #007bff;
+  color: #fff;
+  border: none;
+  padding: 10px 20px;
+  margin: 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: background-color 0.3s, transform 0.2s;
+}
+
+button:hover {
+  background-color: #0056b3;
+  transform: translateY(-3px);
+}
+
+/* Rest of your styles remain unchanged */
+
+/* Add additional small design elements as desired */
+
+
+.pause-menu {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background-color: rgba(255, 255, 255, 0.9);
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+canvas {
+  display: block;
+  width: 340px;
+  height: 430px;
+  touch-action: none;
+  overflow: hidden;
+}
+
+p {
+  text-align: center;
+  font-size: 16px;
+  margin-top: 10px;
+  color: #333;
+}
