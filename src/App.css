@@ -61,3 +61,8 @@ p {
   margin-top: 10px;
   color: #333;
 }
+
+.night-theme {
+  background-color: #000; /* Black background for night */
+  color: #fff; /* White text color for better visibility */
+}

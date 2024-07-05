@@ -10,21 +10,54 @@ const PauseMenu = ({ onResume, onMainMenu, onRestart }) => (
   </div>
 );
 
+// Define a function to handle the voice commands
+const useVoiceCommands = (commands, onCommand) => {
+  useEffect(() => {
+    const recognition = new window.webkitSpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    recognition.onresult = (event) => {
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          const transcript = event.results[i][0].transcript.trim().toLowerCase();
+          if (commands[transcript]) {
+            onCommand(transcript);
+          }
+        }
+      }
+    };
+
+    recognition.start();
+
+    return () => recognition.stop();
+  }, [commands, onCommand]);
+};
+
 const CoinCollector = () => {
   const canvasRef = useRef(null);
   const navigate = useNavigate();
-  const playerPosition = useRef({ x: 50, y: 50, touchStartX: 0, touchStartY: 0 });
-  const scoreRef = useRef(0);
-  const [score, setScore] = useState(0);
-  const [enemyScore, setEnemyScore] = useState(0);
   const [gamePaused, setGamePaused] = useState(false);
   const pauseButtonRef = useRef({ x: 300, y: 10, width: 30, height: 30 });
   const [gameOver, setGameOver] = useState(false);
   const winningScore = 100;
+
+  // Player properties
   const playerSize = 20;
+  const playerPosition = useRef({ x: 50, y: 50, touchStartX: 0, touchStartY: 0 });
+
+  // Score Properties
+  const enemyScoreRef = useRef(0);
+  const scoreRef = useRef(0);
+  const [score, setScore] = useState(0);
+  const [enemyScore, setEnemyScore] = useState(0);
+
+  // Coin Properties
+  const coins = useRef([]);
   const numCoins = 10;
   const coinSize = 10;
-  const coins = useRef([]);
+  const particles = useRef([]);
+
   const coinTypes = [
     { 
      value: 5, 
@@ -63,21 +96,60 @@ const CoinCollector = () => {
       frequency: 0.7 
     } // Common coin
   ];
+
+  // Obstacles properties 
   const obstacleSize = 30;
   const numObstacles = 5;
   const obstacles = useRef([]);
-  const particles = useRef([]);
 
   // Enemy properties
-  const enemySize = 20;
-  const enemySpeed = 0.5; // Speed at which the enemy moves towards the coin
-  const detectionRange = 50;
-  const enemyScoreRef = useRef(0);
   const enemies = useRef([]);
+  const enemySize = 20;
+  const enemySpeed = 0.5;
+  const detectionRange = 50;
+  
+  const spawnInterval = 3000; // Time in milliseconds between spawns (1000ms = 1 second)
+  let lastSpawnTime = Date.now();
 
-  const spawnInterval = 2000; // Time in milliseconds between spawns (1000ms = 1 second)
-  let lastSpawnTime = Date.now(); // Initialize the last spawn time
+  // Power-ups property
+  const [powerUps, setPowerUps] = useState({
+    magnet: { active: false, duration: 5000 },
+    shield: { active: false, duration: 5000 }
+  });
 
+  // Interactive objects: Trees, Animated clouds
+  const treeSize = 50;
+  const trees = [
+    { x: 100, y: 150 },
+    { x: 250, y: 300 }
+  ];
+  const clouds = [
+    { x: 50, y: 50, speed: 1 },
+    { x: 200, y: 100, speed: 0.5 }
+  ];
+
+  // Day-night cycle
+  const [isDay, setIsDay] = useState(true);
+
+  useEffect(() => {
+    // Switch to night after 25 seconds
+    const dayNightTimer = setTimeout(() => {
+      setIsDay(false);
+    }, 25000);
+
+    // Switch back to day after another 25 seconds
+    const returnDayTimer = setTimeout(() => {
+      setIsDay(true);
+    }, 50000);
+
+    // Cleanup timers
+    return () => {
+      clearTimeout(dayNightTimer);
+      clearTimeout(returnDayTimer);
+    };
+  }, []);
+  
+  // Use useCallback to generate things
   const generateCoins = useCallback(() => {
     return Array.from({ length: numCoins }, () => ({
       x: Math.random() * (canvasRef.current.width - coinSize),
@@ -105,6 +177,35 @@ const CoinCollector = () => {
     return newObstacles;
   }, [numObstacles, obstacleSize]);
 
+  // Function to activate a power-up
+  const activatePowerUp = useCallback((powerUpName) => {
+    setPowerUps(prev => ({
+      ...prev,
+      [powerUpName]: { ...prev[powerUpName], active: true }
+    }));
+    setTimeout(() => {
+      setPowerUps(prev => ({
+        ...prev,
+        [powerUpName]: { ...prev[powerUpName], active: false }
+      }));
+    }, powerUps[powerUpName].duration);
+  }, [powerUps]);
+
+  // Voice command handlers
+  const handleVoiceCommand = useCallback((command) => {
+    if (command === 'attract' && !powerUps.magnet.active) {
+      activatePowerUp('magnet');
+    } else if (command === 'protect' && !powerUps.shield.active) {
+      activatePowerUp('shield');
+    }
+  }, [activatePowerUp, powerUps]);
+
+  // Use the custom hook to listen for voice commands
+  useVoiceCommands({
+    'attract': () => activatePowerUp('magnet'),
+    'protect': () => activatePowerUp('shield')
+  }, handleVoiceCommand);
+
   const checkCollision = (obj1, obj2, size1, size2) => {
     return (
       obj1.x < obj2.x + size2 &&
@@ -127,9 +228,6 @@ const CoinCollector = () => {
   }
 
   function updateEnemies() {
-    if (gamePaused) {
-      return;
-    }
     enemies.current.forEach((enemy, index) => {
       let closestCoin = null;
       let closestDistance = Infinity;
@@ -153,29 +251,6 @@ const CoinCollector = () => {
         enemy.y += (directionY / magnitude) * enemySpeed;
       }
 
-      // Check for collisions with other enemies
-      enemies.current.forEach((otherEnemy, otherIndex) => {
-        if (index !== otherIndex && checkCollision(enemy, otherEnemy, enemySize, enemySize)) {
-          // Simple collision response
-          enemy.x -= (Math.random() - 0.5) * 2;
-          enemy.y -= (Math.random() - 0.5) * 2;
-        }
-      });
-
-      // Check for collisions with obstacles
-      obstacles.current.forEach(obstacle => {
-        if (checkCollision(enemy, obstacle, enemySize, obstacleSize)) {
-          // Simple collision response
-          enemy.x -= (Math.random() - 0.5) * 2;
-          enemy.y -= (Math.random() - 0.5) * 2;
-        }
-      });
-
-      // Check for collisions with the player
-      if (checkCollision(enemy, playerPosition.current, enemySize, playerSize)) {
-        // Implement flee behavior or other response
-      }
-
       // Collect coin if collided
       if (closestCoin && checkCollision(enemy, closestCoin, enemySize, coinSize)) {
         coins.current = coins.current.filter(coin => coin !== closestCoin);
@@ -187,7 +262,7 @@ const CoinCollector = () => {
     // Batch state update outside the loop
     setEnemyScore(enemyScoreRef.current);
   }
-
+  
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
@@ -203,7 +278,7 @@ const CoinCollector = () => {
         const radius = coinSize;
 
         ctx.save(); // Save the current state
-
+        
         // Move the context to the coin's location
         ctx.translate(coin.x + radius, coin.y + radius);
 
@@ -227,9 +302,60 @@ const CoinCollector = () => {
     }
 
     function drawObstacles() {
-      ctx.fillStyle = 'black';
+      ctx.fillStyle = isDay ? 'black' : 'gray';
       obstacles.current.forEach(obstacle => {
         ctx.fillRect(obstacle.x, obstacle.y, obstacleSize, obstacleSize);
+      });
+    }
+
+    function drawTrees() {
+      trees.forEach(tree => {
+        ctx.fillStyle = isDay ? 'brown' : '#8b4513';
+        ctx.fillRect(tree.x, tree.y, treeSize, treeSize);
+      });
+    }
+
+    function drawClouds() {
+      clouds.forEach(cloud => {
+        // Draw the 1st circle
+        ctx.fillStyle = isDay ? 'gray' : 'white';
+        ctx.beginPath();
+        ctx.arc(cloud.x, cloud.y, 20, 0, Math.PI * 2);
+        ctx.closePath();
+        
+        ctx.fillStyle = '#f0f0f0';
+        ctx.fill();
+
+        // Draw the 2nd circle
+        ctx.beginPath();
+        ctx.arc(cloud.x + 10, cloud.y, 20, 0, Math.PI * 2);
+        ctx.closePath();
+        ctx.fill();
+
+        // Draw the 3rd circle
+        ctx.beginPath();
+        ctx.arc(cloud.x + 20, cloud.y, 20, 0, Math.PI * 2);
+        ctx.closePath();
+        ctx.fill();
+
+        // Draw curves connecting the circles to form the cloud shape
+        ctx.beginPath();
+        ctx.moveTo(cloud.x, cloud.y);
+        ctx.bezierCurveTo(cloud.x - 10, cloud.y - 10, cloud.x - 20, cloud.y - 20, cloud.x + 20, cloud.y - 20);
+        ctx.bezierCurveTo(cloud.x + 30, cloud.y - 10, cloud.x + 40, cloud.y, cloud.x + 40, cloud.y);
+        
+        ctx.closePath();
+        ctx.fill();
+      });
+    }
+
+    function updateClouds() {
+      clouds.forEach(cloud => {
+        cloud.x += cloud.speed;
+
+        if (cloud.x > canvas.width) {
+          cloud.x = -20; // Reset cloud position
+        }
       });
     }
 
@@ -263,16 +389,11 @@ const CoinCollector = () => {
 
     // Enemy spawning logic
     function spawnEnemies() {
-      if (gamePaused) {
-        return;
-      }
-      
       enemies.current = Array.from({ length: 3 }, () => ({
         x: Math.random() * (canvasRef.current.width - enemySize),
         y: Math.random() * (canvasRef.current.height - enemySize),
       }));
     }
-
     
     function drawEnemies() {
       enemies.current.forEach(enemy => {
@@ -281,7 +402,7 @@ const CoinCollector = () => {
       })
     }
 
-    // Warning system when enemies are about to win
+    // Warn player when enemies are about to win
     function checkEnemyScore() {
       if (enemyScoreRef.current >= 80) {
         // Visual indication
@@ -295,25 +416,29 @@ const CoinCollector = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       drawPlayer();
       drawCoins();
+      
       drawEnemies();
       drawObstacles();
+      drawTrees();
+      drawClouds();
+      updateClouds();
       updateParticles();
       drawParticles();
       drawPauseButton();
       checkEnemyScore();
-      
+
       const currentTime = Date.now();
-      
+
       // Check if it's time to spawn a new enemy
-      if (!gamePaused && currentTime - lastSpawnTime >= spawnInterval) {
-          spawnEnemies(); // Spawn a single enemy
-          updateEnemies();
-          lastSpawnTime = currentTime; // Update the last spawn time
+      if (currentTime - lastSpawnTime >= spawnInterval) {
+        spawnEnemies();
+        updateEnemies();
+        lastSpawnTime = currentTime; // Update the last spawn time
       }
 
       // Filter out collected coins and update the score
       coins.current = coins.current.filter((coin) => {
-        if (checkCollision(playerPosition.current, coin, playerSize, coinSize)) {        
+        if (checkCollision(playerPosition.current, coin, playerSize, coinSize)) {
           scoreRef.current += coinTypes[coin.typeIndex].value;
           setScore(scoreRef.current);
           createParticles(coin.x, coin.y);
@@ -335,6 +460,35 @@ const CoinCollector = () => {
         ctx.fillText('Game Over', canvas.width / 2 - 60, canvas.height / 2);
         ctx.fillText('Score:' + scoreRef.current, canvas.width / 2 - 50, canvas.height / 2 + 30);
         return;
+      }
+
+      // Shield power-up logic
+      if (powerUps.shield.active) {
+        // Temporarily increase the player size to simulate a shield
+        const shieldedPlayerSize = playerSize * 1.5;
+
+        obstacles.current.forEach(obstacle => {
+          if (checkCollision(playerPosition.current, obstacle, shieldedPlayerSize, obstacleSize)) {
+            // Bounce the player back slightly to indicate a collision
+            playerPosition.current.x -= dx * 0.1;
+            playerPosition.current.y -= dy * 0.1;
+          }
+        });
+      }
+
+      // Magnet power-up logic
+      if (powerUps.magnet.active) {
+        coins.current.forEach(coin => {
+          const dx = playerPosition.current.x - coin.x;
+          const dy = playerPosition.current.y - coin.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+
+          if (distance < detectionRange) {
+            const attractionStrength = 0.05; // Adjust as needed
+            coin.x += dx * attractionStrength;
+            coin.y += dy * attractionStrength;
+          }
+        });
       }
 
       if (scoreRef.current >= winningScore) {
@@ -360,6 +514,7 @@ const CoinCollector = () => {
       if (gamePaused) {
         return;
       }
+      
       const rect = canvas.getBoundingClientRect();
       const touchX = e.touches[0].clientX - rect.left;
       const touchY = e.touches[0].clientY - rect.top;
@@ -396,14 +551,27 @@ const CoinCollector = () => {
       playerPosition.current.touchStartY = touchY;
     }
 
-    function handleTouchEnd() {
-      // Touch end logic can be added here if needed
-      console.log('Touch end event processed!');
-    }
+    // Add click or touch event listener to interact with trees
+    function handleTreeInteraction(e) {
+      const rect = canvas.getBoundingClientRect();
+      const touchX = e.clientX - rect.left;
+      const touchY = e.clientY - rect.top;
 
-    canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+      // Make sure the tree is clicked, if clicked, let the leaves fall from the tree
+      trees.forEach(tree => {
+        if (
+          touchX >= tree.x &&
+          touchX <= tree.x + treeSize &&
+          touchY >= tree.y &&
+          touchY <= tree.y + treeSize
+        ) {
+          // Let the leaves fall out
+        }
+      });
+    };
+
+    canvas.addEventListener('touchstart', handleTouchStart, handleTreeInteraction, { passive: false });
     canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
-    canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
 
     gameLoop();
 
@@ -411,9 +579,8 @@ const CoinCollector = () => {
     return () => {
       canvas.removeEventListener('touchstart', handleTouchStart);
       canvas.removeEventListener('touchmove', handleTouchMove);
-      canvas.removeEventListener('touchend', handleTouchEnd);
     };
-  }, [generateCoins, generateObstacles, checkCollision]);
+  }, [generateCoins, generateObstacles, checkCollision, isDay]);
 
   const handleResume = () => {
     setGamePaused(false);
@@ -436,13 +603,14 @@ const CoinCollector = () => {
 
     coins.current = generateCoins();
     obstacles.current = generateObstacles();
+    leaves.current = generateLeaves();
 
     // Optionally, reset the player's position and other states
     playerPosition.current = { x: 50, y: 50, touchStartX: 0, touchStartY: 0 };
   }
 
   return (
-    <>
+    <div className={`coin-collector ${isDay ? '' : 'night-theme'}`}>
       {gamePaused && <PauseMenu onResume={handleResume} onMainMenu={handleMainMenu} onRestart={handleRestart} />}
       <canvas
         ref={canvasRef}
@@ -451,7 +619,7 @@ const CoinCollector = () => {
         style={{ border: '1px solid black' }}
       />
       {!gamePaused && <p className="game-message">Score: {score} | Enemy Score: {enemyScore}</p>}
-    </>
+    </div>
   );
 };
 
